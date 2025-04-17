@@ -9,7 +9,7 @@ concept has_member_co_await = requires(T &&value) {
 
 // 检查是否有全局函数 operator co_await
 template <typename T>
-concept has_global_co_await = requires(T &&value) {
+concept has_free_co_await = requires(T &&value) {
   { operator co_await(static_cast<T &&>(value)) };
 };
 
@@ -22,14 +22,14 @@ decltype(auto) get_awaiter_impl(T &&value) noexcept(
 }
 
 template <typename T>
-  requires(has_global_co_await<T> && !has_member_co_await<T>)
+  requires(has_free_co_await<T> && !has_member_co_await<T>)
 decltype(auto) get_awaiter_impl(T &&value) noexcept(
     noexcept(operator co_await(static_cast<T &&>(value)))) {
   return operator co_await(static_cast<T &&>(value));
 }
 
 template <typename T>
-  requires(is_awaiter<T> && !has_member_co_await<T> && !has_global_co_await<T>)
+  requires(Awaiter<T> && !has_member_co_await<T> && !has_free_co_await<T>)
 decltype(auto) get_awaiter_impl(T &&value) {
   return static_cast<T &&>(value);
 }

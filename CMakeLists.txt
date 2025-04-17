@@ -3,7 +3,7 @@ project(coro)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-
+enable_testing()
 
 file(GLOB HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp)
 
@@ -11,6 +11,10 @@ add_executable(coro main.cpp)
 target_include_directories(coro PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_sources(coro PRIVATE ${HEADERS})  
 
+
+# 添加gtest子目录
+add_subdirectory(third_party/googletest)
+add_subdirectory(tests)
 
 if (MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE /W4 /permissive-)
