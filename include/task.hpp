@@ -1,81 +1,236 @@
 #pragma once
+#include "awaitable_traits.hpp"
+#include "is_awaiter.hpp"
 #include <coroutine>
-#include <iostream>
+#include <exception>
+#include <gtest/gtest.h>
+#include <memory>
+#include <type_traits>
+#include <utility>
+namespace coro {
 
-struct promise_base {
-  struct final_awaitable {
-    std::coroutine_handle<> continution_;
-    bool await_ready() noexcept { return false; }
-    void await_suspend(std::coroutine_handle<> handle) noexcept {
-      /*std::cout << "final_awaiter :" << handle.address() << '\n';*/
-      if (continution_) {
-        continution_.resume();
-      }
+template <typename T> class task;
+
+class task_promise_base {
+  // 实现final_awaiter
+  struct final_awaiter {
+    bool await_ready() const noexcept { return false; }
+    template <typename Promise>
+    std::coroutine_handle<>
+    await_suspend(std::coroutine_handle<Promise> handle) const noexcept {
+      // 到这里来的handle就是本协程
+      return handle.promise().continution_;
     }
-    void await_resume() noexcept {}
+    void await_resume() const noexcept {}
   };
-  auto initial_suspend() { return std::suspend_always{}; } // 惰性启动
-  auto final_suspend() noexcept {
-    return final_awaitable{continution_};
-  } // 惰性结束
-  // 如果final_suspend() 返回std::suspend_never  则协程会立即销毁
-  void unhandled_exception() { std::terminate(); }
+
+public:
+  // 实现promise的部分函数
+  auto initial_suspend() { return std::suspend_always{}; }
+  auto final_suspend() noexcept { return final_awaiter{}; }
+  void set_continution(std::coroutine_handle<> handle) noexcept {
+    continution_ = handle;
+  }
+
+private:
   std::coroutine_handle<> continution_;
 };
-// final_suspend的调用时机，c++协程机制会自动调用promise.final_suspend()
-template <class T> class task;
 
-template <class T> struct promise : public promise_base {
-  void return_value(T value) { value_ = value; }
-  task<T> get_return_object() noexcept;
-  T result() { return value_; }
-  T value_;
-};
-
-template <> struct promise<void> : public promise_base {
-  void return_void() {}
-  task<void> get_return_object() noexcept;
-  void result() {}
-};
-
-template <class T> class task {
+template <typename T> class task_promise : public task_promise_base {
 public:
-  using promise_type = promise<T>;
+  task_promise() noexcept {}
+  task<T> get_return_object() noexcept;
+  void unhandled_exception() noexcept {
+    new (static_cast<void *>(std::addressof(exception_)))
+        std::exception_ptr(std::current_exception());
+    result_type_ = result_type::exception;
+  }
+
+  template <typename Value>
+    requires std::convertible_to<Value &&, T>
+  void return_value(Value &&value) noexcept(
+      std::is_nothrow_constructible_v<T, Value &&>) {
+    ::new (static_cast<void *>(std::addressof(value_)))
+        T(std::forward<Value>(value)); // 通过Value去构造T
+    result_type_ = result_type::value;
+  }
+
+  T &result() & {
+    switch (result_type_) {
+    case result_type::empty:
+      throw std::runtime_error("task not started");
+    case result_type::value:
+      return value_;
+    case result_type::exception:
+      std::rethrow_exception(exception_);
+    }
+  }
+
+  T &&result() && {
+    switch (result_type_) {
+    case result_type::empty:
+      throw std::runtime_error("task not started");
+    case result_type::value:
+      return std::move(value_);
+    case result_type::exception:
+      std::rethrow_exception(exception_);
+    }
+  }
+
+  ~task_promise() {
+    switch (result_type_) {
+    case result_type::value:
+      value_.~T();
+      break;
+    case result_type::exception:
+      exception_.~exception_ptr();
+      break;
+    default:
+      break;
+    }
+  }
+
+private:
+  enum class result_type { empty, value, exception };
+  result_type result_type_ = result_type::empty;
+  union {
+    T value_;
+    std::exception_ptr exception_;
+  };
+};
+
+template <> class task_promise<void> : public task_promise_base {
+public:
+  task_promise() noexcept {}
+  task<void> get_return_object() noexcept;
+  void return_value() noexcept {}
+  void unhandled_exception() noexcept { exception_ = std::current_exception(); }
+  void result() {
+    if (exception_) {
+      std::rethrow_exception(exception_);
+    }
+  }
+
+private:
+  std::exception_ptr exception_;
+};
+
+// 引用版本，使co_return 可以返回引用
+template <typename T> class task_promise<T &> : public task_promise_base {
+public:
+  task<T &> get_return_object() noexcept;
+  void return_value(T &value) noexcept { value_ = std::addressof(value); }
+  void unhandled_exception() noexcept { exception_ = std::current_exception(); }
+  T &result() {
+    if (exception_) {
+      std::rethrow_exception(exception_);
+    }
+    return *value_;
+  }
+
+private:
+  T *value_ = nullptr;
+  std::exception_ptr exception_;
+};
+
+template <typename T = void> class task {
+public:
+  using promise_type = task_promise<T>;
+
+private:
+  struct awaitable_base {
+    awaitable_base(std::coroutine_handle<promise_type> coroutine)
+        : coroutine_(coroutine) {}
+    bool await_ready() const noexcept { return false; }
+    std::coroutine_handle<>
+    await_suspend(std::coroutine_handle<> handle) const noexcept {
+      coroutine_.promise().set_continution(handle);
+      return coroutine_;
+    }
+
+    std::coroutine_handle<promise_type> coroutine_;
+  };
+
+public:
   task() : coroutine_(nullptr) {}
-  task(std::coroutine_handle<promise_type> coroutine) : coroutine_(coroutine) {
- 
+  task(task &&other) : coroutine_(other.coroutine_) {
+    other.coroutine_ = nullptr;
+  }
+  explicit task(std::coroutine_handle<promise_type> coroutine)
+      : coroutine_(coroutine) {}
+  task(const task &) = delete;
+  task &operator=(const task &) = delete;
+  task &operator=(task &&other) noexcept {
+    if (std::addressof(other) != this) {
+      if (coroutine_) {
+        coroutine_.destroy();
+      } // 销毁当前协程
+      coroutine_ = other.coroutine_;
+      other.coroutine_ = nullptr;
+    }
   }
   ~task() {
     if (coroutine_) {
       coroutine_.destroy();
     }
   }
-  void resume() { coroutine_.resume(); }
-  auto operator co_await() { return awaiter{coroutine_}; }
+  bool is_ready() const noexcept { return coroutine_ && coroutine_.done(); }
+  void start() const noexcept {
+    if (coroutine_) {
+      coroutine_.resume();
+    }
+  }
+  auto operator co_await() const & noexcept {
+    struct awaitable : awaitable_base {
+      using awaitable_base::awaitable_base;
+      decltype(auto) await_resume() {
+        return this->coroutine_.promise().result();
+      } // Use coroutine_ from task
+    };
+    return awaitable{coroutine_};
+  }
+
+  auto operator co_await() const && noexcept {
+    struct awaitable : awaitable_base {
+      using awaitable_base::awaitable_base;
+      decltype(auto) await_resume() {
+        return std::move(this->coroutine_)
+            .promise()
+            .result(); // Use coroutine_ from task
+      }
+    };
+    return awaitable{coroutine_};
+  }
+
+  auto when_ready() {
+    struct awaitable : awaitable_base {
+      using awaitable_base::awaitable_base;
+      void await_resume() {}
+    };
+    return awaitable{coroutine_};
+  }
 
 private:
-  struct awaiter {
-    std::coroutine_handle<promise_type> coro_;
-    bool await_ready() { return false; }
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle) {
-      coro_.promise().continution_ = handle; // 保存父协程
-      // 立即执行本协程
-      return coro_;
-    }
-    T await_resume() {
-      return coro_.promise().result();
-    } // result能够处理void和非void
-  };
-
   std::coroutine_handle<promise_type> coroutine_;
 };
 
-template <class T> task<T> promise<T>::get_return_object() noexcept {
-  return task<T>(std::coroutine_handle<promise>::from_promise(*this));
-} // 模板只是定义，编译器不会实例化，所以代码提示不行
-
-// 对于偏特化的模板类型，在其他地方定义的时候，不需要加template<>
-task<void> promise<void>::get_return_object() noexcept {
-  return task<void>(std::coroutine_handle<promise>::from_promise(*this)); //
+template <typename T> task<T> task_promise<T>::get_return_object() noexcept {
+  return task<T>{std::coroutine_handle<task_promise>::from_promise(*this)};
 }
-// 从一个具有promise_type的对象中获取协程帧
+
+inline task<void> task_promise<void>::get_return_object() noexcept {
+  return task<void>{
+      std::coroutine_handle<task_promise<void>>::from_promise(*this)};
+}
+template <typename T>
+task<T &> task_promise<T &>::get_return_object() noexcept {
+  return task<T &>{
+      std::coroutine_handle<task_promise<T &>>::from_promise(*this)};
+}
+
+template <Awaitable T>
+auto make_task(T awaitable)
+    -> task<std::remove_cvref_t<typename awaitable_traits<T>::await_result_t>> {
+  co_return co_await std::forward<T>(awaitable);
+}
+} // namespace coro
