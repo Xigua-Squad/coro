@@ -6,8 +6,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 enable_testing()
 
 file(GLOB HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp)
+aux_source_directory(${CMAKE_SOURCE_DIR}/lib LIB_SRCS)
 
-add_executable(coro main.cpp)
+add_executable(coro main.cpp ${LIB_SRCS})
 target_include_directories(coro PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_sources(coro PRIVATE ${HEADERS})  
 

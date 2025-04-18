@@ -1,6 +1,8 @@
 aux_source_directory(. tests_src)
+
 add_executable(tests 
     ${tests_src}
+    ${LIB_SRCS}
 )
 
 target_include_directories(tests PRIVATE ${CMAKE_SOURCE_DIR}/tests)

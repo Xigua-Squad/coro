@@ -19,7 +19,11 @@ class task_promise_base {
     std::coroutine_handle<>
     await_suspend(std::coroutine_handle<Promise> handle) const noexcept {
       // 到这里来的handle就是本协程
-      return handle.promise().continution_;
+      auto continution = handle.promise().continution_;
+      if (continution) {
+        return continution;
+      }
+      return std::noop_coroutine();
     }
     void await_resume() const noexcept {}
   };
@@ -64,6 +68,7 @@ public:
     case result_type::exception:
       std::rethrow_exception(exception_);
     }
+    throw std::logic_error("Unhandled result type");
   }
 
   T &&result() && {
@@ -75,6 +80,7 @@ public:
     case result_type::exception:
       std::rethrow_exception(exception_);
     }
+    throw std::logic_error("Unhandled result type");
   }
 
   ~task_promise() {
