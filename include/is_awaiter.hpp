@@ -33,21 +33,3 @@ concept Awaiter = requires(T t, std::coroutine_handle<> h) {
   { t.await_suspend(h) } -> IsValidAwaitSuspendReturnValue;
   { t.await_resume() };
 };
-
-// 检测是否存在 operator co_await(obj)
-template <typename T>
-concept HasMemberCoAwait = requires(T t) {
-  { t.operator co_await() };
-};
-
-template <typename T>
-concept HasFreeCoAwait = requires(T t) {
-  { operator co_await(t) };
-};
-
-// 检测是否可以转换成 Awaiter（即能 `co_await`）
-template <typename T>
-concept Awaitable = requires(T t) {
-  requires Awaiter<T> || Awaiter<decltype(t.operator co_await())> ||
-               Awaiter<decltype(operator co_await(t))>;
-};

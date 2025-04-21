@@ -1,7 +1,6 @@
 #include "get_awaiter.hpp"
 #include <coroutine>
 #include <gtest/gtest.h>
-#include <type_traits>
 
 // 一个简单的 awaiter 类型
 struct simple_awaiter {

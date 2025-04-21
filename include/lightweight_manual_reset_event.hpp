@@ -5,6 +5,8 @@
 #include <linux/futex.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+namespace coro {
+#ifdef __linux__
 class lightweight_manual_reset_event {
 public:
   void wait() {
@@ -29,3 +31,8 @@ public:
 private:
   std::atomic<int> value_{0};
 };
+#else
+class lightweight_manlightweight_manual_reset_event {};
+#endif
+
+} // namespace coro
