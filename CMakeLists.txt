@@ -8,14 +8,17 @@ enable_testing()
 file(GLOB HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp)
 aux_source_directory(${CMAKE_SOURCE_DIR}/lib LIB_SRCS)
 
-add_executable(coro main.cpp ${LIB_SRCS})
-target_include_directories(coro PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_sources(coro PRIVATE ${HEADERS})  
-
 
 # 添加gtest子目录
 add_subdirectory(third_party/googletest)
 add_subdirectory(tests)
+
+
+add_executable(coro main.cpp ${LIB_SRCS})
+target_include_directories(coro PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_sources(coro PRIVATE ${HEADERS})  
+target_include_directories(coro PRIVATE ${stdexec_SOURCE_DIR}/include)
+
 
 if (MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE /W4 /permissive-)

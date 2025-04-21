@@ -177,6 +177,85 @@ private:
 };
 
 // 分给shared_task的功能，好像就只剩下一个awaitable了
+template <> class [[nodiscard]] shared_task<void> {
+public:
+  using promise_type = shared_task_promise<void>;
+
+private:
+  struct awaitable_base {
+    std::coroutine_handle<promise_type> coroutine_;
+    shared_task_waiter waiter_;
+    awaitable_base(std::coroutine_handle<promise_type> coroutine) noexcept
+        : coroutine_(coroutine) {}
+
+    bool await_ready() const noexcept {
+      return !coroutine_ || coroutine_.promise().is_ready();
+    }
+    bool await_suspend(std::coroutine_handle<> awaiter) noexcept {
+      waiter_.continution_ = awaiter;
+      return coroutine_.promise().try_await(&waiter_, coroutine_);
+    }
+    void await_resume() {
+      if (!coroutine_) {
+        throw broken_promise();
+      }
+      coroutine_.promise().result();
+    }
+  };
+
+public:
+  shared_task() noexcept : coroutine_(nullptr) {}
+
+  explicit shared_task(std::coroutine_handle<promise_type> coroutine)
+      : coroutine_(coroutine) {}
+  shared_task(shared_task &&other) noexcept : coroutine_(other.coroutine_) {
+    other.coroutine_ = nullptr;
+  }
+  shared_task(const shared_task &other) noexcept
+      : coroutine_(other.coroutine_) {
+    if (coroutine_) {
+      coroutine_.promise().add_ref();
+    }
+  }
+  ~shared_task() { destroy(); }
+  shared_task &operator=(shared_task &&other) noexcept {
+    if (&other != this) {
+      destroy();
+      coroutine_ = other.coroutine_;
+      other.coroutine_ = nullptr;
+    }
+    return *this;
+  }
+  shared_task &operator=(const shared_task &other) noexcept {
+    if (coroutine_ != other.coroutine_) {
+      destroy();
+      coroutine_ = other.coroutine_;
+      if (coroutine_) {
+        coroutine_.promise().add_ref();
+      }
+    }
+    return *this;
+  }
+  void swap(shared_task &other) noexcept {
+    std::swap(coroutine_, other.coroutine_);
+  }
+  bool is_ready() const noexcept {
+    return !coroutine_ || coroutine_.promise().is_ready();
+  }
+  auto operator co_await() const noexcept { return awaitable_base{coroutine_}; }
+
+private:
+  friend bool operator==(const shared_task &, const shared_task &) noexcept;
+  void destroy() {
+    if (coroutine_) {
+      if (!coroutine_.promise().try_detach()) {
+        coroutine_.destroy();
+      }
+    }
+  }
+  std::coroutine_handle<promise_type> coroutine_;
+};
+
 template <class T> class [[nodiscard]] shared_task {
 public:
   using promise_type = shared_task_promise<T>;

@@ -1,6 +1,6 @@
 #pragma once
 #include "awaitable_traits.hpp"
-#include "is_awaiter.hpp"
+#include "concepts/awaitable.hpp"
 #include <coroutine>
 #include <exception>
 #include <gtest/gtest.h>
@@ -110,7 +110,7 @@ template <> class task_promise<void> : public task_promise_base {
 public:
   task_promise() noexcept {}
   task<void> get_return_object() noexcept;
-  void return_value() noexcept {}
+  void return_void() noexcept {}
   void unhandled_exception() noexcept { exception_ = std::current_exception(); }
   void result() {
     if (exception_) {
