@@ -139,8 +139,7 @@ sync_wait_task<void> make_sync_wait_task(A &&awaitable) {
 }
 
 template <Awaitable A>
-auto sync_wait(A &&awaitable) ->
-    typename awaitable_traits<A &&>::await_result_t {
+auto sync_wait(A &&awaitable) -> awaitable_traits<A &&>::await_result_t {
   auto task = make_sync_wait_task(std::forward<A>(awaitable));
   // 把awaitable转成sync_wait_task
   lightweight_manual_reset_event event;
