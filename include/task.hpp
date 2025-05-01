@@ -7,7 +7,7 @@
 #include <memory>
 #include <type_traits>
 #include <utility>
-namespace coro {
+namespace xigua::coro {
 
 template <typename T> class task;
 
@@ -240,4 +240,4 @@ auto make_task(T awaitable)
     -> task<std::remove_cvref_t<typename awaitable_traits<T>::await_result_t>> {
   co_return co_await std::forward<T>(awaitable);
 }
-} // namespace coro
+} // namespace xigua::coro

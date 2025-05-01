@@ -3,17 +3,18 @@
 #include "task.hpp"
 #include <cmath>
 #include <iostream>
-coro::task<std::string> get() { co_return "代拍"; }
-coro::task<void> test() {
-  auto t2 = get() | coro::fmap([](const std::string &str) {
-              std::cout << "lambda 执行\n";
-              std::cout << str << std::endl;
-            });
-  auto t3 = coro::fmap([](std::string) {}, get());
-  co_await t2;
-}
+#include <memory>
+#include <utility>
+class P {
+public:
+  P() = default;
+  P(P &&) { std::cout << "P&&\n"; }
+};
+auto get() { return P{}; }
+
+void func(P a) {}
 
 int main() {
-  coro::sync_wait(test());
+  func(get());
   return 0;
 }

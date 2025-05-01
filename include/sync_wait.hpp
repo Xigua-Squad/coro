@@ -6,11 +6,10 @@
 #include <coroutine>
 #include <exception>
 #include <memory>
-#include <optional>
 #include <type_traits>
 #include <unistd.h>
 #include <utility>
-namespace coro {
+namespace xigua::coro {
 
 template <typename T> class sync_wait_task;
 template <typename T> class sync_wait_task_promise final {
@@ -148,4 +147,4 @@ auto sync_wait(A &&awaitable) -> awaitable_traits<A &&>::await_result_t {
   return task.result();
 }
 
-} // namespace coro
+} // namespace xigua::coro

@@ -1,6 +1,7 @@
 #include "sync_wait.hpp"
 #include "task.hpp"
 #include <gtest/gtest.h>
+using namespace xigua;
 
 coro::task<void> test1() {
   std::cout << "test 1" << '\n';
@@ -27,15 +28,15 @@ coro::task<const int &> test5() {
   std::cout << "test 5" << '\n';
   co_return const_val;
 }
-TEST(SyncWaitTest, Test1) { EXPECT_NO_THROW(sync_wait(test1())); }
+TEST(SyncWaitTest, Test1) { EXPECT_NO_THROW(coro::sync_wait(test1())); }
 
 TEST(SyncWaitTest, Test2) {
-  int result = sync_wait(test2());
+  int result = coro::sync_wait(test2());
   EXPECT_EQ(result, 1);
 }
 
 TEST(SyncWaitTest, Test3) {
-  int &result = sync_wait(test3());
+  int &result = coro::sync_wait(test3());
   EXPECT_EQ(result, freeVal);
   EXPECT_EQ(result, 123);
 
@@ -45,7 +46,7 @@ TEST(SyncWaitTest, Test3) {
 }
 
 TEST(SyncWaitTest, Test4) {
-  int result = sync_wait(test4());
+  int result = coro::sync_wait(test4());
   EXPECT_EQ(result, 1);
 }
 

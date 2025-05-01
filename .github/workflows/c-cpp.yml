@@ -7,17 +7,21 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
-
-    runs-on: ubuntu-latest
-
+  build-and-test:
+    runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v4
-    - name: configure
-      run: ./configure
-    - name: make
-      run: make
-    - name: make check
-      run: make check
-    - name: make distcheck
-      run: make distcheck
+
+    - name: Install dependencies
+      run: sudo apt-get install -y g++-12 cmake
+
+    - name: Build
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_TESTS=ON
+        cmake --build build --parallel 4
+
+    - name: Run tests
+      working-directory: ./build  # 直接进入构建目录
+      run: ctest --output-on-failure  # 使用 CTest 更规范

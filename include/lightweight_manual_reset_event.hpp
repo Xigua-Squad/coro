@@ -5,7 +5,7 @@
 #include <linux/futex.h>
 #include <sys/syscall.h>
 #include <unistd.h>
-namespace coro {
+namespace xigua::coro {
 #ifdef __linux__
 class lightweight_manual_reset_event {
 public:
@@ -35,4 +35,4 @@ private:
 class lightweight_manlightweight_manual_reset_event {};
 #endif
 
-} // namespace coro
+} // namespace xigua::coro

@@ -6,7 +6,7 @@
 #include <functional>
 #include <type_traits>
 #include <utility>
-namespace coro {
+namespace xigua::coro {
 
 template <typename Func, Awaitable A> class fmap_awaiter {
   using awaiter_t = typename awaitable_traits<A>::awaiter_t;
@@ -37,13 +37,18 @@ public:
   decltype(auto) await_resume() noexcept(
       noexcept(std::invoke(std::forward<Func>(func_),
                            std::forward<awaiter_t>(awaiter_).await_resume()))) {
-    if constexpr (std::is_void_v<AwaitResult>) {
-      std::forward<awaiter_t>(awaiter_).await_resume();
-      std::invoke(std::forward<Func>(func_));
-    } else {
-      return std::invoke(std::forward<Func>(func_),
-                         std::forward<awaiter_t>(awaiter_).await_resume());
-    }
+    return std::invoke(std::forward<Func>(func_),
+                       static_cast<awaiter_t &&>(awaiter_).await_resume());
+  }
+
+  template <
+      typename AwaitResult = decltype(std::declval<awaiter_t>().await_resume())>
+  decltype(auto)
+  await_resume() noexcept(noexcept(std::invoke(std::forward<Func>(func_))))
+    requires std::is_void_v<AwaitResult>
+  {
+    std::forward<awaiter_t>(awaiter_).await_resume();
+    std::invoke(std::forward<Func>(func_));
   }
 };
 
@@ -95,4 +100,4 @@ template <typename T, typename Func>
 decltype(auto) operator|(T &&value, fmap_transform<Func> &&transform) {
   return fmap(std::forward<Func>(transform.func_), std::forward<T>(value));
 }
-} // namespace coro
+} // namespace xigua::coro
