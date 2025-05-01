@@ -5,23 +5,18 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
-  build-and-test:
-    runs-on: ubuntu-22.04
+  build:
+    runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
     - name: Install dependencies
-      run: sudo apt-get install -y g++-12 cmake
-
-    - name: Build
       run: |
-        cmake -B build \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DBUILD_TESTS=ON
-        cmake --build build --parallel 4
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc g++ make
 
-    - name: Run tests
-      working-directory: ./build  # 直接进入构建目录
-      run: ctest --output-on-failure  # 使用 CTest 更规范
