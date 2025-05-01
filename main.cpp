@@ -12,6 +12,7 @@ coro::task<void> test() {
   auto t3 = coro::fmap([](std::string) {}, get());
   co_await t2;
 }
+
 int main() {
   coro::sync_wait(test());
   return 0;
