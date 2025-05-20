@@ -1,5 +1,4 @@
 #pragma once
-#include "awaitable_traits.hpp"
 #include "concepts/awaitable.hpp"
 #include <coroutine>
 #include <exception>
@@ -216,9 +215,9 @@ public:
     };
     return awaitable{coroutine_};
   }
+  std::coroutine_handle<promise_type> coroutine_;
 
 private:
-  std::coroutine_handle<promise_type> coroutine_;
 };
 
 template <typename T> task<T> task_promise<T>::get_return_object() noexcept {
@@ -235,9 +234,9 @@ task<T &> task_promise<T &>::get_return_object() noexcept {
       std::coroutine_handle<task_promise<T &>>::from_promise(*this)};
 }
 
-template <Awaitable T>
-auto make_task(T awaitable)
-    -> task<std::remove_cvref_t<typename awaitable_traits<T>::await_result_t>> {
+template <concepts::awaitable T>
+auto make_task(T awaitable) -> task<std::remove_cvref_t<
+    typename concepts::awaitable_traits<T>::await_result_t>> {
   co_return co_await std::forward<T>(awaitable);
 }
 } // namespace xigua::coro

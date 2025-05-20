@@ -1,22 +1,20 @@
 #pragma once
-#include "awaitable_traits.hpp"
 #include "concepts/awaitable.hpp"
-#include "get_awaiter.hpp"
 #include <coroutine>
 #include <functional>
 #include <type_traits>
 #include <utility>
 namespace xigua::coro {
 
-template <typename Func, Awaitable A> class fmap_awaiter {
-  using awaiter_t = typename awaitable_traits<A>::awaiter_t;
+template <typename Func, concepts::awaitable A> class fmap_awaiter {
+  using awaiter_t = typename concepts::awaitable_traits<A>::awaiter_t;
   Func &&func_;
   awaiter_t awaiter_; // 这里是不是也得是右值类型
 
 public:
   fmap_awaiter(Func &&func, A &&awaitable) noexcept(
       std::is_nothrow_move_constructible_v<awaiter_t> &&
-      noexcept(get_awaiter(std::forward<A>(awaitable))))
+      noexcept())
       : func_(std::forward<Func>(func)),
         awaiter_(get_awaiter(std::forward<A>(awaitable))) {}
 
@@ -52,7 +50,7 @@ public:
   }
 };
 
-template <typename Func, Awaitable A> class fmap_awaitable {
+template <typename Func, concepts::awaitable A> class fmap_awaitable {
 public:
   template <typename FuncArg, typename AwaitableArg>
     requires std::is_constructible_v<Func, FuncArg &&> and
@@ -85,7 +83,8 @@ template <typename Func> struct fmap_transform {
   Func func_;
 };
 
-template <typename Func, Awaitable A> auto fmap(Func &&func, A &&awaitable) {
+template <typename Func, concepts::awaitable A>
+auto fmap(Func &&func, A &&awaitable) {
   using FuncType = std::remove_cv_t<std::remove_reference_t<Func>>;
   using AwaitableType = std::remove_cv_t<std::remove_reference_t<A>>;
   return fmap_awaitable<FuncType, AwaitableType>(std::forward<Func>(func),
