@@ -59,7 +59,7 @@ public:
     result_type_ = result_type::value;
   }
 
-  T &result() & {
+  decltype(auto) result() & {
     switch (result_type_) {
     case result_type::empty:
       throw std::runtime_error("task not started");
@@ -71,7 +71,7 @@ public:
     throw std::logic_error("Unhandled result type");
   }
 
-  T &&result() && {
+  decltype(auto) result() && {
     switch (result_type_) {
     case result_type::empty:
       throw std::runtime_error("task not started");
@@ -196,7 +196,7 @@ public:
     return awaitable{coroutine_};
   }
 
-  auto operator co_await() const && noexcept {
+  auto operator co_await() && noexcept {
     struct awaitable : awaitable_base {
       using awaitable_base::awaitable_base;
       decltype(auto) await_resume() {
