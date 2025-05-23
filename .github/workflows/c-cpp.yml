@@ -12,8 +12,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
+    - name: Checkout code (with submodules)
       uses: actions/checkout@v4
+      with:
+        submodules: recursive  # 👈 关键点：拉取所有子模块
 
     - name: Install dependencies
       run: |
