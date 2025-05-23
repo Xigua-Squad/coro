@@ -1,152 +1,166 @@
 #pragma once
-#include "awaitable_traits.hpp"
 #include "concepts/awaitable.hpp"
-#include "lightweight_manual_reset_event.hpp"
-#include <cassert>
+#include "manual_reset_event.hpp"
 #include <coroutine>
 #include <exception>
-#include <memory>
-#include <optional>
 #include <type_traits>
-#include <unistd.h>
 #include <utility>
-namespace coro {
+#include <variant>
 
-template <typename T> class sync_wait_task;
-template <typename T> class sync_wait_task_promise final {
-  using coroutine_handle_t = std::coroutine_handle<sync_wait_task_promise<T>>;
+namespace xigua::coro {
 
+class sync_wait_task_promise_base {
 public:
-  sync_wait_task_promise() noexcept = default;
-  void start(lightweight_manual_reset_event &event) {
-    event_ = &event;
-    coroutine_handle_t::from_promise(*this).resume();
-  }
-  auto get_return_object() noexcept {
-    return sync_wait_task<T>(coroutine_handle_t::from_promise(*this));
-  }
+  sync_wait_task_promise_base() noexcept = default;
+  auto initial_suspend() noexcept { return std::suspend_always{}; }
 
-  std::suspend_always initial_suspend() noexcept { return {}; }
+protected:
+  manual_reset_event *event_;
 
-  auto final_suspend() noexcept {
-    struct completion_notifier {
-      bool await_ready() const noexcept { return false; }
-      void await_suspend(coroutine_handle_t coroutine) const noexcept {
-        coroutine.promise().event_->set();
-        // 唤醒因为event_阻塞的线程
-      }
-      void await_resume() const noexcept {}
-    };
-    return completion_notifier{};
-  }
-
-  auto yield_value(T &&value) noexcept {
-    result_ = std::addressof(value);
-    return final_suspend();
-  }
-
-  void return_void() noexcept {
-    assert(false);
-    // 这里应该不会被调用
-  }
-
-  void unhandled_exception() noexcept { exception_ = std::current_exception(); }
-
-  T &&result() {
-    if (exception_) {
-      std::rethrow_exception(exception_);
-    }
-    return static_cast<T &&>(*result_);
-  }
-
-private:
-  lightweight_manual_reset_event *event_ = nullptr;
-  std::remove_reference_t<T> *result_;
-  std::exception_ptr exception_;
+  ~sync_wait_task_promise_base() = default;
 };
 
-template <> class sync_wait_task_promise<void> {
-  using coroutine_handle_t =
-      std::coroutine_handle<sync_wait_task_promise<void>>;
+template <typename T>
+class sync_wait_task;
 
+template <typename R>
+class sync_wait_task_promise : public sync_wait_task_promise_base {
 public:
-  sync_wait_task_promise() noexcept = default;
-  void start(lightweight_manual_reset_event &event) {
+  using coroutine_type = std::coroutine_handle<sync_wait_task_promise>;
+  using rm_const_reference_t = std::remove_const_t<std::remove_reference_t<R>>;
+  using value_type = std::conditional_t<std::is_reference_v<R>, std::add_pointer_t<R>, rm_const_reference_t>;
+
+  sync_wait_task<R> get_return_object() noexcept;
+
+  auto start(manual_reset_event &event) {
     event_ = &event;
-    coroutine_handle_t::from_promise(*this).resume();
+    coroutine_type::from_promise(*this).resume();
   }
-  std::suspend_always initial_suspend() noexcept { return {}; }
-  auto get_return_object() noexcept {
-    return coroutine_handle_t::from_promise(*this);
-  } // 返回的是一个std::coroutine_handle协程句柄
-  void unhandled_exception() noexcept { exception_ = std::current_exception(); }
+  template <typename U>
+    requires std::is_constructible_v<R, U &&>
+  void return_value(U &&value) {
+    if constexpr (std::is_reference_v<R>) {
+      value_.template emplace<value_type>(std::addressof(value));
+    } else {
+      value_.template emplace<value_type>(std::forward<U>(value));
+    }
+  }
+  auto unhandled_exception() noexcept {
+    value_.template emplace<std::exception_ptr>(std::current_exception());
+  }
   auto final_suspend() noexcept {
     struct completion_notifier {
-      bool await_ready() const noexcept { return false; }
-      void await_suspend(coroutine_handle_t coroutine) const noexcept {
-        coroutine.promise().event_->set();
-        // 唤醒因为event_阻塞的线程
-      }
-      void await_resume() const noexcept {}
+      auto await_ready() const noexcept { return false; }
+      auto await_suspend(coroutine_type coroutine) const noexcept { return coroutine.promise().event_->set(); }
+      void await_resume() noexcept {}
     };
     return completion_notifier{};
   }
 
-  void return_void() noexcept {}
+  // (cv)int & result()
+  // (cv)int && result()
+  R &&result() {
+    if (std::holds_alternative<std::exception_ptr>(value_)) {
+      std::rethrow_exception(std::get<std::exception_ptr>(value_));
+    }
+    if constexpr (std::is_reference_v<R>) {
+      return *std::get<value_type>(value_); // const T&
+    } else {
+      return std::move(std::get<value_type>(value_)); // T
+    }
+  }
+  // 在cppcoro 中 result 的返回值是 T&& ，引用折叠
+  // 1. int -> int&&
+  // 2. const int -> const int&&
+  // 3. int& -> int&
+  // 4. const int& -> const int&
 
+private:
+  std::variant<std::monostate, value_type, std::exception_ptr> value_;
+};
+// addpoint可以处理引用吗
+template <>
+class sync_wait_task_promise<void> : public sync_wait_task_promise_base {
+public:
+  using coroutine_type = std::coroutine_handle<sync_wait_task_promise<void>>;
+  void return_void() {}
+
+  auto start(manual_reset_event &event) {
+    event_ = &event;
+    coroutine_type::from_promise(*this).resume();
+  }
+  sync_wait_task<void> get_return_object() noexcept;
   void result() {
     if (exception_) {
       std::rethrow_exception(exception_);
     }
   }
+  auto unhandled_exception() noexcept { exception_ = std::current_exception(); }
+  auto final_suspend() noexcept {
+    struct completion_notifier {
+      auto await_ready() const noexcept { return false; }
+      auto await_suspend(coroutine_type coroutine) const noexcept { return coroutine.promise().event_->set(); }
+      void await_resume() noexcept {}
+    };
+    return completion_notifier{};
+  }
 
 private:
-  lightweight_manual_reset_event *event_ = nullptr;
   std::exception_ptr exception_;
 };
 
-template <typename T> class sync_wait_task final {
+template <class T>
+class sync_wait_task {
 public:
   using promise_type = sync_wait_task_promise<T>;
-  using coroutine_handle_t = std::coroutine_handle<promise_type>;
-  sync_wait_task(coroutine_handle_t coroutine) : coroutine_(coroutine) {}
-  sync_wait_task(sync_wait_task &&other) noexcept
-      : coroutine_(std::exchange(other.coroutine_, coroutine_handle_t{})) {}
-  sync_wait_task(const sync_wait_task &) = delete;
-  sync_wait_task &operator=(const sync_wait_task &) = delete;
-  void start(lightweight_manual_reset_event &event) {
-    coroutine_.promise().start(event);
+  // 新增构造函数
+  explicit sync_wait_task(std::coroutine_handle<promise_type> handle)
+      : handle_(handle) {}
+  void start(manual_reset_event &event) {
+    handle_.promise().start(event);
   }
-  decltype(auto) result() { return coroutine_.promise().result(); }
+
+  decltype(auto) result() { return handle_.promise().result(); }
+  // 返回值会出现的情况
+  // 1. (cv)T&&
+  // 2. (cv)T&
+  // 3. void
 
 private:
-  coroutine_handle_t coroutine_;
+  std::coroutine_handle<promise_type> handle_;
 };
 
-// 非 void 返回值的版本
-template <Awaitable A>
-  requires(!std::is_void_v<typename awaitable_traits<A &&>::await_result_t>)
-sync_wait_task<typename awaitable_traits<A &&>::await_result_t>
-make_sync_wait_task(A &&awaitable) {
-  co_yield co_await std::forward<A>(awaitable);
+template <typename T>
+auto sync_wait_task_promise<T>::get_return_object() noexcept -> sync_wait_task<T> {
+  return sync_wait_task<T>(coroutine_type::from_promise(*this));
 }
 
-// void 返回值的版本
-template <Awaitable A>
-  requires std::is_void_v<typename awaitable_traits<A &&>::await_result_t>
-sync_wait_task<void> make_sync_wait_task(A &&awaitable) {
-  co_await std::forward<A>(awaitable);
+inline auto sync_wait_task_promise<void>::get_return_object() noexcept -> sync_wait_task<void> {
+  return sync_wait_task<void>(coroutine_type::from_promise(*this));
 }
 
-template <Awaitable A>
-auto sync_wait(A &&awaitable) ->
-    typename awaitable_traits<A &&>::await_result_t {
+template <concepts::awaitable A, typename R = concepts::awaitable_traits_t<A>>
+static auto make_sync_wait_task(A &&awaitable) -> sync_wait_task<R> {
+
+  if constexpr (std::is_void_v<R>) {
+    co_await awaitable;
+    co_return;
+  } else {
+    co_return co_await std::forward<A>(awaitable);
+  }
+}
+
+template <concepts::awaitable A, typename R = concepts::awaitable_traits_t<A>>
+[[nodiscard]] auto sync_wait(A &&awaitable) -> R {
+  manual_reset_event event;
   auto task = make_sync_wait_task(std::forward<A>(awaitable));
-  // 把awaitable转成sync_wait_task
-  lightweight_manual_reset_event event;
-  task.start(event);
+  task.start(event); // 开始执行task任务
   event.wait();
-  return task.result();
+  if constexpr (std::is_void_v<R>) {
+    task.result();
+    return;
+  } else {
+    return task.result(); // 如果result返回T&&
+  }
 }
-
-} // namespace coro
+} // namespace xigua::coro

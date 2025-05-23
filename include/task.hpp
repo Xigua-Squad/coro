@@ -1,5 +1,4 @@
 #pragma once
-#include "awaitable_traits.hpp"
 #include "concepts/awaitable.hpp"
 #include <coroutine>
 #include <exception>
@@ -7,7 +6,7 @@
 #include <memory>
 #include <type_traits>
 #include <utility>
-namespace coro {
+namespace xigua::coro {
 
 template <typename T> class task;
 
@@ -60,7 +59,7 @@ public:
     result_type_ = result_type::value;
   }
 
-  T &result() & {
+  decltype(auto) result() & {
     switch (result_type_) {
     case result_type::empty:
       throw std::runtime_error("task not started");
@@ -72,7 +71,7 @@ public:
     throw std::logic_error("Unhandled result type");
   }
 
-  T &&result() && {
+  decltype(auto) result() && {
     switch (result_type_) {
     case result_type::empty:
       throw std::runtime_error("task not started");
@@ -197,7 +196,7 @@ public:
     return awaitable{coroutine_};
   }
 
-  auto operator co_await() const && noexcept {
+  auto operator co_await() && noexcept {
     struct awaitable : awaitable_base {
       using awaitable_base::awaitable_base;
       decltype(auto) await_resume() {
@@ -216,9 +215,9 @@ public:
     };
     return awaitable{coroutine_};
   }
+  std::coroutine_handle<promise_type> coroutine_;
 
 private:
-  std::coroutine_handle<promise_type> coroutine_;
 };
 
 template <typename T> task<T> task_promise<T>::get_return_object() noexcept {
@@ -235,9 +234,9 @@ task<T &> task_promise<T &>::get_return_object() noexcept {
       std::coroutine_handle<task_promise<T &>>::from_promise(*this)};
 }
 
-template <Awaitable T>
-auto make_task(T awaitable)
-    -> task<std::remove_cvref_t<typename awaitable_traits<T>::await_result_t>> {
+template <concepts::awaitable T>
+auto make_task(T awaitable) -> task<std::remove_cvref_t<
+    typename concepts::awaitable_traits<T>::await_result_t>> {
   co_return co_await std::forward<T>(awaitable);
 }
-} // namespace coro
+} // namespace xigua::coro
