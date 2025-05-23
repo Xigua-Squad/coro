@@ -3,7 +3,6 @@
 #include "manual_reset_event.hpp"
 #include <coroutine>
 #include <exception>
-#include <iostream>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -14,13 +13,10 @@ class sync_wait_task_promise_base {
 public:
   sync_wait_task_promise_base() noexcept = default;
   auto initial_suspend() noexcept { return std::suspend_always{}; }
-  auto unhandled_exception() noexcept {
-    exception_ = std::current_exception();
-  }
 
 protected:
   manual_reset_event *event_;
-  std::exception_ptr exception_;
+
   ~sync_wait_task_promise_base() = default;
 };
 
@@ -33,7 +29,6 @@ public:
   using coroutine_type = std::coroutine_handle<sync_wait_task_promise>;
   using rm_const_reference_t = std::remove_const_t<std::remove_reference_t<R>>;
   using value_type = std::conditional_t<std::is_reference_v<R>, std::add_pointer_t<R>, rm_const_reference_t>;
-  using stored_type = std::variant<std::monostate, value_type, std::exception_ptr>;
 
   sync_wait_task<R> get_return_object() noexcept;
 
@@ -44,12 +39,14 @@ public:
   template <typename U>
     requires std::is_constructible_v<R, U &&>
   void return_value(U &&value) {
-    std::cout << "return_value:" << value << '\n';
     if constexpr (std::is_reference_v<R>) {
       value_.template emplace<value_type>(std::addressof(value));
     } else {
       value_.template emplace<value_type>(std::forward<U>(value));
     }
+  }
+  auto unhandled_exception() noexcept {
+    value_.template emplace<std::exception_ptr>(std::current_exception());
   }
   auto final_suspend() noexcept {
     struct completion_notifier {
@@ -60,21 +57,26 @@ public:
     return completion_notifier{};
   }
 
-  decltype(auto) result() {
+  // (cv)int & result()
+  // (cv)int && result()
+  R &&result() {
     if (std::holds_alternative<std::exception_ptr>(value_)) {
       std::rethrow_exception(std::get<std::exception_ptr>(value_));
     }
     if constexpr (std::is_reference_v<R>) {
-      // static_assert(std::is_same_v<value_type, int *>);
       return *std::get<value_type>(value_); // const T&
     } else {
-      // static_assert(std::is_same_v<value_type, int>);
-      return std::get<value_type>(value_); // T
+      return std::move(std::get<value_type>(value_)); // T
     }
   }
+  // 在cppcoro 中 result 的返回值是 T&& ，引用折叠
+  // 1. int -> int&&
+  // 2. const int -> const int&&
+  // 3. int& -> int&
+  // 4. const int& -> const int&
 
 private:
-  stored_type value_; // T& ,const T&, T
+  std::variant<std::monostate, value_type, std::exception_ptr> value_;
 };
 // addpoint可以处理引用吗
 template <>
@@ -93,6 +95,7 @@ public:
       std::rethrow_exception(exception_);
     }
   }
+  auto unhandled_exception() noexcept { exception_ = std::current_exception(); }
   auto final_suspend() noexcept {
     struct completion_notifier {
       auto await_ready() const noexcept { return false; }
@@ -103,6 +106,7 @@ public:
   }
 
 private:
+  std::exception_ptr exception_;
 };
 
 template <class T>
@@ -112,11 +116,15 @@ public:
   // 新增构造函数
   explicit sync_wait_task(std::coroutine_handle<promise_type> handle)
       : handle_(handle) {}
-  auto promise() & -> promise_type & { return handle_.promise(); }
-  auto promise() const & -> const promise_type & { return handle_.promise(); }
-  auto promise() && -> promise_type && { return std::move(handle_.promise()); }
+  void start(manual_reset_event &event) {
+    handle_.promise().start(event);
+  }
 
   decltype(auto) result() { return handle_.promise().result(); }
+  // 返回值会出现的情况
+  // 1. (cv)T&&
+  // 2. (cv)T&
+  // 3. void
 
 private:
   std::coroutine_handle<promise_type> handle_;
@@ -143,16 +151,16 @@ static auto make_sync_wait_task(A &&awaitable) -> sync_wait_task<R> {
 }
 
 template <concepts::awaitable A, typename R = concepts::awaitable_traits_t<A>>
-auto sync_wait(A &&awaitable) -> R {
+[[nodiscard]] auto sync_wait(A &&awaitable) -> R {
   manual_reset_event event;
   auto task = make_sync_wait_task(std::forward<A>(awaitable));
-  task.promise().start(event); // 开始执行task任务
+  task.start(event); // 开始执行task任务
   event.wait();
   if constexpr (std::is_void_v<R>) {
     task.result();
     return;
   } else {
-    return task.result();
+    return task.result(); // 如果result返回T&&
   }
 }
 } // namespace xigua::coro
